@@ -6,6 +6,8 @@ use std::path::PathBuf;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct AppConfig {
+    /// Player backend: "sober" (default, plays Roblox online on Linux via Flatpak) or "wine"
+    pub player_backend: String,
     /// Path or command name for Wine binary (e.g., "wine", "wine64", or custom path)
     pub wine_binary: String,
     /// Optional path to a Proton installation directory (if set, uses Proton instead of plain Wine)
@@ -46,6 +48,7 @@ impl Default for AppConfig {
         );
 
         Self {
+            player_backend: "sober".to_string(),
             wine_binary: "wine".to_string(),
             proton_dir: None,
             renderer: "D3D11".to_string(),
