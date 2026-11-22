@@ -1,6 +1,7 @@
 mod config;
 mod deployment;
 mod desktop;
+mod sober;
 mod wine;
 
 use clap::{Parser, Subcommand};
@@ -29,7 +30,7 @@ enum Commands {
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         args: Vec<String>,
     },
-    /// ดาวน์โหลด/อัปเดต และรัน Roblox Player (WindowsPlayer) ใน Wine/Proton Prefix
+    /// เปิดเล่นเกม Roblox ออนไลน์บน Linux (ใช้ Sober เป็นค่าเริ่มต้น หรือสลับไป Wine ได้ใน config)
     Player {
         /// อาร์กิวเมนต์หรือลิงก์ URI (เช่น roblox-player:...)
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
@@ -45,8 +46,11 @@ enum Commands {
     },
     /// ตั้งค่าเริ่มต้น: สร้าง Wine Prefix, เปิดใช้งาน DXVK และลงทะเบียน .desktop + ลิงก์เว็บ
     Setup,
-    /// แสดงหรือตั้งค่าไฟล์ config.toml (เช่น เปลี่ยน Renderer D3D11/Vulkan/OpenGL หรือเลือก Proton)
+    /// แสดงหรือตั้งค่าไฟล์ config.toml (เช่น เปลี่ยน Renderer D3D11/Vulkan/OpenGL, เลือก Proton หรือ player-backend)
     Config {
+        /// ตั้งค่า Player Backend (sober หรือ wine)
+        #[arg(long)]
+        player_backend: Option<String>,
         /// ตั้งค่า Renderer (D3D11, Vulkan, OpenGL)
         #[arg(long)]
         renderer: Option<String>,
@@ -94,9 +98,16 @@ fn run() -> Result<(), String> {
             runner.launch(&exe_path, &args)?;
         }
         Some(Commands::Player { args }) => {
-            let exe_path = ensure_deployed(BinaryType::WindowsPlayer, &cfg)?;
-            let runner = WineRunner::new(&cfg);
-            runner.launch(&exe_path, &args)?;
+            if cfg.player_backend.eq_ignore_ascii_case("wine") {
+                eprintln!(
+                    "[คำเตือน] คุณกำลังใช้ player_backend = \"wine\" ซึ่งระบบกันโกง Hyperion ของ Roblox บน Windows บล็อก Wine บน Linux จึงอาจไม่สามารถเข้าเล่นเซิร์ฟเวอร์ออนไลน์ได้ (แนะนำให้ใช้ `rbx-linux config --player-backend sober`)"
+                );
+                let exe_path = ensure_deployed(BinaryType::WindowsPlayer, &cfg)?;
+                let runner = WineRunner::new(&cfg);
+                runner.launch(&exe_path, &args)?;
+            } else {
+                sober::launch(&args, &cfg.merged_fflags(false))?;
+            }
         }
         Some(Commands::Run { exe, args }) => {
             if !exe.exists() {
@@ -118,15 +129,32 @@ fn run() -> Result<(), String> {
             let runner = WineRunner::new(&cfg);
             runner.init_prefix()?;
             desktop::install_desktop_entries()?;
-            println!("\n[สำเร็จ] ตั้งค่าระบบเสร็จสมบูรณ์! คุณสามารถรัน `rbx-linux studio` หรือ `rbx-linux run <ไฟล์.exe>` ได้ทันที");
+            if !cfg.player_backend.eq_ignore_ascii_case("wine") && !sober::sober_installed() {
+                if let Err(e) = sober::install_sober() {
+                    eprintln!("[คำเตือน] ข้ามการติดตั้ง Sober อัตโนมัติ: {}", e);
+                }
+            }
+            println!("\n[สำเร็จ] ตั้งค่าระบบเสร็จสมบูรณ์! คุณสามารถรัน `rbx-linux player` (เล่นเกมออนไลน์ผ่าน Sober), `rbx-linux studio` หรือ `rbx-linux run <ไฟล์.exe>` ได้ทันที");
         }
         Some(Commands::Config {
+            player_backend,
             renderer,
             wine,
             proton,
             dxvk,
         }) => {
             let mut changed = false;
+            if let Some(pb) = player_backend {
+                let norm = pb.trim().to_lowercase();
+                if norm != "sober" && norm != "wine" {
+                    return Err(format!(
+                        "ค่า --player-backend ไม่ถูกต้อง: '{}' (รองรับเฉพาะ 'sober' หรือ 'wine')",
+                        pb
+                    ));
+                }
+                cfg.player_backend = norm;
+                changed = true;
+            }
             if let Some(r) = renderer {
                 cfg.renderer = r;
                 changed = true;
@@ -205,12 +233,21 @@ fn run() -> Result<(), String> {
                 "[OK] FastFlags (Studio)    : {:?}",
                 cfg.merged_fflags(true)
             );
+            let has_flatpak = sober::flatpak_available();
+            let has_sober = has_flatpak && sober::sober_installed();
+            println!(
+                "[Info] Player Backend      : {} (Flatpak: {}, Sober: {})",
+                cfg.player_backend,
+                if has_flatpak { "พร้อมใช้งาน" } else { "ไม่พบ" },
+                if has_sober { "ติดตั้งแล้ว" } else { "ไม่พบ" }
+            );
             println!("[สำเร็จ] ระบบดาวน์โหลด CDN และการตั้งค่าพร้อมใช้งาน 100%");
         }
         None => {
             print_status(&cfg);
             println!("\nคำสั่งที่ใช้บ่อย:");
-            println!("  rbx-linux setup               # ตั้งค่า Wine Prefix, DXVK และทางลัดบน Linux ครั้งแรก");
+            println!("  rbx-linux setup               # ตั้งค่า Wine Prefix, DXVK, Sober และทางลัดบน Linux ครั้งแรก");
+            println!("  rbx-linux player              # เล่นเกม Roblox ออนไลน์บน Linux ผ่าน Sober (ค่าเริ่มต้น)");
             println!("  rbx-linux studio              # ดาวน์โหลดและเปิด Roblox Studio (Windows .exe) บน Linux");
             println!("  rbx-linux run <path/to.exe>   # รันไฟล์ไคลเอนต์ Roblox Windows (.exe) ที่ต้องการใน Wine Prefix");
             println!("  rbx-linux config --renderer Vulkan  # เปลี่ยนโหมดกราฟิก (D3D11, Vulkan, OpenGL)");
@@ -227,6 +264,7 @@ fn print_status(cfg: &AppConfig) {
     println!("โฟลเดอร์ Wine Prefix : {:?}", AppConfig::prefix_dir());
     println!("โฟลเดอร์เก็บเวอร์ชัน   : {:?}", AppConfig::versions_dir());
     println!("โฟลเดอร์แคชดาวน์โหลด : {:?}", AppConfig::cache_dir());
+    println!("Player Backend     : {}", cfg.player_backend);
     println!("Wine Binary        : {}", cfg.wine_binary);
     println!(
         "Proton Directory   : {}",
