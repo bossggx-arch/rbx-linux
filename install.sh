@@ -23,6 +23,29 @@ if ! command -v wine >/dev/null 2>&1; then
     fi
 fi
 
+# 1.5 ตรวจสอบ Flatpak และติดตั้ง Sober สำหรับเล่นเกม Roblox ออนไลน์บน Linux
+if ! command -v flatpak >/dev/null 2>&1; then
+    echo "[!] ยังไม่พบโปรแกรม Flatpak บนเครื่อง (จำเป็นสำหรับ Sober)"
+    if command -v apt >/dev/null 2>&1; then
+        echo " -> กำลังติดตั้ง Flatpak ผ่าน apt..."
+        sudo apt update && sudo apt install -y flatpak
+    elif command -v pacman >/dev/null 2>&1; then
+        echo " -> กำลังติดตั้ง Flatpak ผ่าน pacman..."
+        sudo pacman -S --needed --noconfirm flatpak
+    elif command -v dnf >/dev/null 2>&1; then
+        echo " -> กำลังติดตั้ง Flatpak ผ่าน dnf..."
+        sudo dnf install -y flatpak
+    else
+        echo "กรุณาติดตั้งแพ็กเกจ flatpak ของ Linux Distro ของคุณก่อน"
+    fi
+fi
+
+if command -v flatpak >/dev/null 2>&1; then
+    echo "[*] กำลังเพิ่ม Flathub และติดตั้ง Sober (org.vinegarhq.Sober)..."
+    flatpak remote-add --if-not-exists --user flathub https://dl.flathub.org/repo/flathub.flatpakrepo
+    flatpak install --user -y flathub org.vinegarhq.Sober || echo "[!] ข้ามการติดตั้ง Sober อัตโนมัติ (สามารถรัน rbx-linux player เพื่อลองติดตั้งใหม่ภายหลังได้)"
+fi
+
 # 2. ตรวจสอบ Rust / Cargo สำหรับคอมไพล์ Binary
 if ! command -v cargo >/dev/null 2>&1; then
     echo "[*] ไม่พบ Cargo กำลังติดตั้ง Rust Toolchain อัตโนมัติ..."
@@ -49,7 +72,8 @@ echo "[*] ติดตั้งไบนารีไปที่: $INSTALL_DIR/r
 echo ""
 echo "====================================================="
 echo "  ติดตั้งเสร็จสมบูรณ์! วิธีใช้งาน:"
-echo "  - เปิด Roblox Studio : rbx-linux studio"
-echo "  - รันไฟล์ .exe เฉพาะ : rbx-linux run /path/to/Roblox.exe"
-echo "  - ดูสถานะการตั้งค่า   : rbx-linux status"
+echo "  - เล่น Roblox ออนไลน์ : rbx-linux player (ผ่าน Sober)"
+echo "  - เปิด Roblox Studio  : rbx-linux studio (ผ่าน Wine)"
+echo "  - รันไฟล์ .exe เฉพาะ  : rbx-linux run /path/to/Roblox.exe"
+echo "  - ดูสถานะการตั้งค่า    : rbx-linux status"
 echo "====================================================="
